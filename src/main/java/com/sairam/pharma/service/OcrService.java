@@ -88,11 +88,19 @@ public class OcrService {
             .build();
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private static final String MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions";
+
+    @Value("${mistral.api.url}")
+    private String MISTRAL_API_URL;
 
     public Map<String, Object> extractBillData(String imageFilePath) {
+
+        Request request  = new Request.Builder()
+                .url(imageFilePath)
+                .build();
+
         try {
-            byte[] imageBytes = Files.readAllBytes(Paths.get( imageFilePath));
+            Response response = httpClient.newCall(request).execute();
+            byte[] imageBytes = response.body().bytes();
             String base64Image = Base64.getEncoder().encodeToString(imageBytes);
             String mimeType    = detectMimeType(imageFilePath);
 

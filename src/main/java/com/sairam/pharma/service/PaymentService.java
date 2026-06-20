@@ -22,6 +22,7 @@ import com.sairam.pharma.entity.Bill;
 import com.sairam.pharma.entity.Payment;
 import com.sairam.pharma.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,12 +34,14 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final BillService billService;
+    private final FileStorageService fileStorageService;
 
     @Transactional
     public PaymentDto.Response payBill(Long billId, PaymentDto.Request request) {
@@ -49,48 +52,31 @@ public class PaymentService {
         BigDecimal discountAmount;
         BigDecimal totalCleared;
 
-        // ================================================================
-        // "MARK AS FULLY PAID" — one-click button
-        //
-        // If discount fields are provided, apply that discount first,
-        // then whatever remains of the due becomes the cash amount paid.
-        // If NO discount is provided, the entire due is cleared as cash.
-        // ================================================================
         if (Boolean.TRUE.equals(request.getMarkAsFullyPaid())) {
-
             discountAmount = calculateDiscountAmount(
-                    request.getDiscountType(), request.getDiscountValue(), bill.getDueAmount()
-            );
-            // Whatever discount doesn't cover, the rest is "paid"
+                    request.getDiscountType(), request.getDiscountValue(), bill.getDueAmount());
             amountPaid   = bill.getDueAmount().subtract(discountAmount).max(BigDecimal.ZERO)
                     .setScale(2, RoundingMode.HALF_UP);
-            totalCleared = bill.getDueAmount(); // clears the due completely, by definition
+            totalCleared = bill.getDueAmount();
 
         } else {
             amountPaid = (request.getAmountPaid() != null
-                    ? request.getAmountPaid()
-                    : BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+                    ? request.getAmountPaid() : BigDecimal.ZERO)
+                    .setScale(2, RoundingMode.HALF_UP);
 
             discountAmount = calculateDiscountAmount(
-                    request.getDiscountType(), request.getDiscountValue(), bill.getDueAmount()
-            );
+                    request.getDiscountType(), request.getDiscountValue(), bill.getDueAmount());
 
             totalCleared = amountPaid.add(discountAmount).setScale(2, RoundingMode.HALF_UP);
 
-            // ---- Validations (skipped for markAsFullyPaid since it's bounded by due) ----
-            if (amountPaid.compareTo(BigDecimal.ZERO) < 0) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Amount paid cannot be negative");
-            }
-            if (totalCleared.compareTo(BigDecimal.ZERO) <= 0) {
+            if (amountPaid.compareTo(BigDecimal.ZERO) < 0)
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Amount paid cannot be negative");
+            if (totalCleared.compareTo(BigDecimal.ZERO) <= 0)
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Total cleared (payment + discount) must be greater than zero");
-            }
-            if (totalCleared.compareTo(bill.getDueAmount()) > 0) {
+            if (totalCleared.compareTo(bill.getDueAmount()) > 0)
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Total cleared ₹" + totalCleared +
-                                " cannot exceed due amount ₹" + bill.getDueAmount());
-            }
+                        "Total cleared ₹" + totalCleared + " cannot exceed due amount ₹" + bill.getDueAmount());
         }
 
         LocalDate paymentDate = request.getPaymentDate() != null
@@ -109,16 +95,33 @@ public class PaymentService {
 
         bill.addPayment(payment);
 
-        // paidAmount tracks TOTAL CLEARED (cash + discount) — this is
-        // what determines PAID/PARTIAL/UNPAID status correctly
         BigDecimal newPaidAmount = bill.getPaidAmount().add(totalCleared);
         BigDecimal newDueAmount  = bill.getDueAmount().subtract(totalCleared).max(BigDecimal.ZERO);
-
         bill.setPaidAmount(newPaidAmount);
         bill.setDueAmount(newDueAmount);
         bill.setStatus(BillService.calculateStatus(bill.getTotalAmount(), newPaidAmount, newDueAmount));
 
-        billService.saveBill(bill);
+        try {
+            billService.saveBill(bill);
+
+            // ---- CONFIRM PROOF IMAGE ----
+            // Payment saved → make proof image permanent in Cloudinary
+            if (payment.getProofImageUrl() != null) {
+                fileStorageService.confirmFile(payment.getProofImageUrl());
+            }
+
+        } catch (Exception e) {
+            // ---- DELETE TEMP PROOF IMAGE ON FAILURE ----
+            if (request.getProofImageUrl() != null) {
+                try {
+                    String publicId = fileStorageService.extractPublicId(request.getProofImageUrl());
+                    if (publicId != null) fileStorageService.deleteFile(publicId);
+                } catch (Exception ex) {
+                    log.warn("Could not delete temp proof after payment failure: {}", ex.getMessage());
+                }
+            }
+            throw e;
+        }
 
         return PaymentDto.Response.builder()
                 .id(payment.getId())
@@ -138,7 +141,9 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public List<PaymentDto.Response> getPaymentsForBill(Long billId) {
+
         billService.findBillOrThrow(billId);
+
         return paymentRepository.findByBillIdOrderByPaidAtDesc(billId)
                 .stream()
                 .map(p -> PaymentDto.Response.builder()
@@ -160,17 +165,14 @@ public class PaymentService {
             String discountType, BigDecimal discountValue, BigDecimal dueAmount) {
 
         if (discountType == null || discountValue == null
-                || discountValue.compareTo(BigDecimal.ZERO) <= 0) {
-            return BigDecimal.ZERO;
-        }
+                || discountValue.compareTo(BigDecimal.ZERO) <= 0) return BigDecimal.ZERO;
 
         return switch (discountType.toUpperCase()) {
             case "FIXED" ->
                     discountValue.min(dueAmount).setScale(2, RoundingMode.HALF_UP);
             case "PERCENTAGE" -> {
                 BigDecimal pct = discountValue.min(new BigDecimal("100"));
-                yield dueAmount.multiply(pct)
-                        .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+                yield dueAmount.multiply(pct).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
             }
             default -> BigDecimal.ZERO;
         };

@@ -33,14 +33,12 @@ package com.sairam.pharma.service;
 import com.sairam.pharma.dto.BillDto;
 import com.sairam.pharma.dto.BillItemDto;
 import com.sairam.pharma.dto.PaymentDto;
-import com.sairam.pharma.entity.Agency;
-import com.sairam.pharma.entity.Bill;
-import com.sairam.pharma.entity.BillItem;
-import com.sairam.pharma.entity.BillStatus;
+import com.sairam.pharma.entity.*;
 import com.sairam.pharma.exception.ResourceNotFoundException;
 import com.sairam.pharma.repository.AgencyRepository;
 import com.sairam.pharma.repository.BillRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,24 +49,27 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class BillService {
 
     private final BillRepository billRepository;
     private final AgencyRepository agencyRepository;
+    private final FileStorageService fileStorageService;
 
-    // ---- CREATE BILL ----
+    // ================================================================
+    // CREATE BILL
+    // On success → confirm the bill image in Cloudinary (remove temp tag)
+    // On failure → Spring rolls back DB, we also delete the temp image
+    // ================================================================
     @Transactional
     public BillDto.Response createBill(BillDto.Request request) {
 
         Agency agency = agencyRepository.findById(request.getAgencyId())
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Agency not found with id: " + request.getAgencyId()
-                ));
+                        "Agency not found with id: " + request.getAgencyId()));
 
-        // netAmount (scanned grand total) becomes totalAmount.
-        // Nothing is calculated — we trust what's printed on the bill.
         BigDecimal netAmount = request.getNetAmount().setScale(2, RoundingMode.HALF_UP);
 
         Bill bill = Bill.builder()
@@ -80,13 +81,12 @@ public class BillService {
                 .billDiscount(request.getBillDiscount())
                 .billGst(request.getBillGst())
                 .netAmount(netAmount)
-                .totalAmount(netAmount)        // ← scanned value, not calculated
+                .totalAmount(netAmount)
                 .paidAmount(BigDecimal.ZERO)
-                .dueAmount(netAmount)           // nothing paid yet → due = full net amount
+                .dueAmount(netAmount)
                 .status(BillStatus.UNPAID)
                 .build();
 
-        // Convert each item DTO → BillItem entity — ALL fields scanned, nothing computed
         for (BillItemDto.Request itemReq : request.getItems()) {
             BillItem item = BillItem.builder()
                     .hsnCode(itemReq.getHsnCode())
@@ -99,14 +99,38 @@ public class BillService {
                     .rate(itemReq.getRate())
                     .discount(itemReq.getDiscount())
                     .gst(itemReq.getGst())
-                    .amount(itemReq.getAmount())   // scanned line amount, not qty×rate
+                    .amount(itemReq.getAmount())
                     .build();
-
             bill.addItem(item);
         }
 
-        Bill saved = billRepository.save(bill);
-        return toResponse(saved);
+        try {
+            Bill saved = billRepository.save(bill);
+
+            // ---- CONFIRM IMAGE ----
+            // Bill saved successfully → remove temp tag from Cloudinary image
+            // so the cleanup job never touches it
+            if (saved.getBillImageUrl() != null) {
+                fileStorageService.confirmFile(saved.getBillImageUrl());
+            }
+
+            return toResponse(saved);
+
+        } catch (Exception e) {
+            // ---- DELETE TEMP IMAGE ON FAILURE ----
+            // Bill save failed → delete the uploaded image from Cloudinary
+            // so it doesn't become an orphan (the cleanup job would also
+            // catch it in 2 hours, but immediate deletion is cleaner)
+            if (request.getBillImageUrl() != null) {
+                try {
+                    String publicId = fileStorageService.extractPublicId(request.getBillImageUrl());
+                    if (publicId != null) fileStorageService.deleteFile(publicId);
+                } catch (Exception ex) {
+                    log.warn("Could not delete temp image after bill save failure: {}", ex.getMessage());
+                }
+            }
+            throw e; // re-throw so the transaction rolls back
+        }
     }
 
     @Transactional(readOnly = true)
@@ -120,8 +144,7 @@ public class BillService {
 
         Agency agency = agencyRepository.findById(agencyId)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Agency not found with id: " + agencyId
-                ));
+                        "Agency not found with id: " + agencyId));
 
         LocalDate today = LocalDate.now();
         LocalDate startDate;
@@ -129,7 +152,7 @@ public class BillService {
 
         if (customFrom != null && customTo != null) {
             startDate = customFrom;
-            endDate = customTo;
+            endDate   = customTo;
         } else if (days != null) {
             startDate = today.minusDays(days);
         } else {
@@ -143,10 +166,6 @@ public class BillService {
         BigDecimal totalPaid   = billRepository.sumPaidAmountByAgencyAndDateRange(agencyId, startDate, endDate);
         BigDecimal totalDue    = billRepository.sumDueAmountByAgencyAndDateRange(agencyId, startDate, endDate);
 
-        List<BillDto.SummaryResponse> billSummaries = bills.stream()
-                .map(this::toSummaryResponse)
-                .collect(Collectors.toList());
-
         return BillDto.AgencyBillsSummary.builder()
                 .agencyId(agency.getId())
                 .agencyName(agency.getName())
@@ -154,21 +173,17 @@ public class BillService {
                 .totalPaidAmount(totalPaid)
                 .totalDueAmount(totalDue)
                 .billCount(bills.size())
-                .bills(billSummaries)
+                .bills(bills.stream().map(this::toSummaryResponse).collect(Collectors.toList()))
                 .build();
     }
 
-    // ---- UPDATE BILL ----
     @Transactional
     public BillDto.Response updateBill(Long id, BillDto.Request request) {
         Bill bill = findBillOrThrow(id);
+        String oldImageUrl = bill.getBillImageUrl();
 
         bill.setBillNumber(request.getBillNumber().trim());
         bill.setBillDate(request.getBillDate());
-        if (request.getBillImageUrl() != null) {
-            bill.setBillImageUrl(request.getBillImageUrl());
-        }
-
         bill.setSubTotal(request.getSubTotal());
         bill.setBillDiscount(request.getBillDiscount());
         bill.setBillGst(request.getBillGst());
@@ -177,12 +192,15 @@ public class BillService {
         bill.setNetAmount(newNetAmount);
         bill.setTotalAmount(newNetAmount);
 
-        // Recalculate due: new total - whatever was already paid
         BigDecimal newDue = newNetAmount.subtract(bill.getPaidAmount());
         bill.setDueAmount(newDue.max(BigDecimal.ZERO));
         bill.setStatus(calculateStatus(newNetAmount, bill.getPaidAmount(), bill.getDueAmount()));
 
-        // Replace all items
+        // Handle image change
+        if (request.getBillImageUrl() != null && !request.getBillImageUrl().equals(oldImageUrl)) {
+            bill.setBillImageUrl(request.getBillImageUrl());
+        }
+
         bill.getItems().clear();
         for (BillItemDto.Request itemReq : request.getItems()) {
             BillItem item = BillItem.builder()
@@ -202,35 +220,55 @@ public class BillService {
         }
 
         Bill updated = billRepository.save(bill);
+
+        // Confirm new image if changed
+        if (request.getBillImageUrl() != null && !request.getBillImageUrl().equals(oldImageUrl)) {
+            fileStorageService.confirmFile(request.getBillImageUrl());
+        }
+
         return toResponse(updated);
     }
 
     @Transactional
     public void deleteBill(Long id) {
-        billRepository.delete(findBillOrThrow(id));
+        Bill bill = findBillOrThrow(id);
+
+        List<Payment> payments = bill.getPayments();
+
+        for(Payment payment: payments){
+            fileStorageService.deleteFile(
+                    fileStorageService.extractPublicId(payment.getProofImageUrl())
+            );
+        }
+        
+        fileStorageService.deleteFile(fileStorageService.extractPublicId(bill.getBillImageUrl()));
+
+        log.info("deleted payments files of bill {}", bill.getBillNumber());
+
+        billRepository.delete(bill);
     }
 
-    // ================================================================
-    // STATUS CALCULATION
-    // ================================================================
-    public static BillStatus calculateStatus(BigDecimal totalAmount, BigDecimal paidAmount, BigDecimal dueAmount) {
+    public static BillStatus calculateStatus(
+            BigDecimal totalAmount, BigDecimal paidAmount, BigDecimal dueAmount) {
         if (dueAmount.compareTo(BigDecimal.ZERO) <= 0) return BillStatus.PAID;
         if (paidAmount.compareTo(BigDecimal.ZERO) <= 0) return BillStatus.UNPAID;
         return BillStatus.PARTIALLY_PAID;
     }
 
-    // ---- SAVE BILL (used by PaymentService) ----
     @Transactional
     public Bill saveBill(Bill bill) {
+
         return billRepository.save(bill);
     }
 
-    // Package-private — used by PaymentService
     Bill findBillOrThrow(Long id) {
         return billRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Bill not found with id: " + id));
     }
 
+    // ================================================================
+    // MAPPERS
+    // ================================================================
     private BillDto.Response toResponse(Bill bill) {
         List<BillItemDto.Response> itemDtos = bill.getItems().stream()
                 .map(item -> BillItemDto.Response.builder()
@@ -251,17 +289,17 @@ public class BillService {
 
         List<PaymentDto.Response> paymentDtos = bill.getPayments().stream()
                 .sorted(Comparator.comparing(com.sairam.pharma.entity.Payment::getPaidAt).reversed())
-                .map(payment -> PaymentDto.Response.builder()
-                        .id(payment.getId())
-                        .amountPaid(payment.getAmountPaid())
-                        .paymentDate(payment.getPaymentDate())
-                        .discountType(payment.getDiscountType())
-                        .discountValue(payment.getDiscountValue())
-                        .discountAmount(payment.getDiscountAmount())
-                        .totalCleared(payment.getTotalCleared())
-                        .proofImageUrl(payment.getProofImageUrl())
-                        .notes(payment.getNotes())
-                        .paidAt(payment.getPaidAt())
+                .map(p -> PaymentDto.Response.builder()
+                        .id(p.getId())
+                        .amountPaid(p.getAmountPaid())
+                        .paymentDate(p.getPaymentDate())
+                        .discountType(p.getDiscountType())
+                        .discountValue(p.getDiscountValue())
+                        .discountAmount(p.getDiscountAmount())
+                        .totalCleared(p.getTotalCleared())
+                        .proofImageUrl(p.getProofImageUrl())
+                        .notes(p.getNotes())
+                        .paidAt(p.getPaidAt())
                         .build())
                 .collect(Collectors.toList());
 

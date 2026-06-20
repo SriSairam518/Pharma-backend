@@ -54,8 +54,11 @@ public class OcrController {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error("imageUrl is required"));
         }
+//        log.info("before extract bill data");
 
         Map<String, Object> result = ocrService.extractBillData(imageUrl);
+
+//        log.info("after extract bill data");
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> items = (List<Map<String, Object>>) result.get("items");

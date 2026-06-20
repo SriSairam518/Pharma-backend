@@ -19,6 +19,7 @@ package com.sairam.pharma.config;
 // "It's okay to accept requests from http://localhost:5173"
 // ================================================================
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
@@ -27,33 +28,33 @@ import org.springframework.web.filter.CorsFilter;
 
 import java.util.List;
 
-@Configuration  // tells Spring: "this class contains configuration beans"
+@Configuration
 public class CorsConfig {
 
-    @Bean  // Spring will create and manage this object
+    // Set FRONTEND_URL environment variable on Render to your Netlify URL
+    // e.g. https://pharma-shop.netlify.app
+    // Falls back to localhost for local development
+    @Value("${frontend.url}")
+    private String frontendUrl;
+
+    @Bean
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();
 
-        // Which frontend URLs are allowed to call this backend
-        // In production, change this to your actual deployed frontend URL
         config.setAllowedOrigins(List.of(
-                "http://localhost:5173",   // Vite dev server (React)
-                "http://localhost:3000"    // Create React App (just in case)
+                "http://localhost:5173",    // local React dev
+                "http://localhost:3000",    // alternative local
+                frontendUrl                 // production Netlify URL (from env var)
         ));
 
-        // Which HTTP methods are allowed
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-
-        // Which request headers are allowed
-        // "Authorization" is needed later when we add JWT login
         config.setAllowedHeaders(List.of("*"));
-
-        // Allow the browser to send cookies / auth headers
         config.setAllowCredentials(true);
 
-        // Apply this CORS config to ALL routes (/api/*)
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
+        source.registerCorsConfiguration("/api/**", source.getCorsConfigurations().isEmpty()
+                ? config : config);
+        source.registerCorsConfiguration("/api/**", config);
 
         return new CorsFilter(source);
     }

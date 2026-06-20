@@ -123,6 +123,7 @@ public class AgencyService {
         // TODO (Phase 3): Before deleting, check if this agency has unpaid bills.
         // If it does, throw a BusinessException("Cannot delete agency with unpaid bills")
 
+
         agencyRepository.delete(agency);
     }
 
