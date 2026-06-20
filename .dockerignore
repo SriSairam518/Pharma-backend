@@ -1,0 +1,19 @@
+# ================================================================
+# .dockerignore
+#
+# Files/folders listed here are NOT sent to Docker when building.
+# This makes builds faster and the image smaller.
+# Same idea as .gitignore, but for Docker.
+# ================================================================
+
+target/
+.git/
+.gitignore
+.idea/
+*.iml
+.vscode/
+.mvn/wrapper/maven-wrapper.jar
+*.log
+.DS_Store
+README.md
+uploads/

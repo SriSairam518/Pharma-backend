@@ -33,7 +33,10 @@ package com.sairam.pharma.service;
 import com.sairam.pharma.dto.BillDto;
 import com.sairam.pharma.dto.BillItemDto;
 import com.sairam.pharma.dto.PaymentDto;
-import com.sairam.pharma.entity.*;
+import com.sairam.pharma.entity.Agency;
+import com.sairam.pharma.entity.Bill;
+import com.sairam.pharma.entity.BillItem;
+import com.sairam.pharma.entity.BillStatus;
 import com.sairam.pharma.exception.ResourceNotFoundException;
 import com.sairam.pharma.repository.AgencyRepository;
 import com.sairam.pharma.repository.BillRepository;
@@ -233,19 +236,47 @@ public class BillService {
     public void deleteBill(Long id) {
         Bill bill = findBillOrThrow(id);
 
-        List<Payment> payments = bill.getPayments();
+        // ---- Collect every Cloudinary image tied to this bill ----
+        // 1. The bill scan image itself
+        // 2. Every payment proof image across all payments on this bill
+        // We collect URLs BEFORE deleting the DB row, since once the
+        // bill/payments are gone we can no longer read their image URLs.
+        List<String> imageUrlsToDelete = new java.util.ArrayList<>();
 
-        for(Payment payment: payments){
-            fileStorageService.deleteFile(
-                    fileStorageService.extractPublicId(payment.getProofImageUrl())
-            );
+        if (bill.getBillImageUrl() != null) {
+            imageUrlsToDelete.add(bill.getBillImageUrl());
         }
-        
-        fileStorageService.deleteFile(fileStorageService.extractPublicId(bill.getBillImageUrl()));
+        bill.getPayments().forEach(payment -> {
+            if (payment.getProofImageUrl() != null) {
+                imageUrlsToDelete.add(payment.getProofImageUrl());
+            }
+        });
 
-        log.info("deleted payments files of bill {}", bill.getBillNumber());
-
+        // ---- Delete the bill from the database ----
+        // Cascade (orphanRemoval) takes care of bill_items and payments rows
         billRepository.delete(bill);
+
+        // ---- Delete each collected image from Cloudinary ----
+        // This runs AFTER the DB delete succeeds, so we never end up
+        // deleting images for a bill that failed to delete from the DB.
+        for (String imageUrl : imageUrlsToDelete) {
+            try {
+                String publicId = fileStorageService.extractPublicId(imageUrl);
+                if (publicId != null) {
+                    fileStorageService.deleteFile(publicId);
+                }
+            } catch (Exception e) {
+                // Non-fatal — the bill is already deleted from the DB.
+                // Worst case this image becomes an orphan; if it still has
+                // no tag (already confirmed), the hourly cleanup job won't
+                // catch it either, but this is a rare edge case worth logging.
+                log.warn("Could not delete Cloudinary image {} after bill {} deletion: {}",
+                        imageUrl, id, e.getMessage());
+            }
+        }
+
+        log.info("Deleted bill {} and {} associated image(s) from Cloudinary",
+                id, imageUrlsToDelete.size());
     }
 
     public static BillStatus calculateStatus(
@@ -257,7 +288,6 @@ public class BillService {
 
     @Transactional
     public Bill saveBill(Bill bill) {
-
         return billRepository.save(bill);
     }
 
