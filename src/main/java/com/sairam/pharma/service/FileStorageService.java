@@ -65,7 +65,7 @@ public class FileStorageService {
                 "api_secret", apiSecret,
                 "secure",     true
         ));
-        log.info("Cloudinary initialized — cloud: {}", cloudName);
+        log.info("Cloudinary initialized — cloud");
     }
 
     // ================================================================
@@ -114,7 +114,7 @@ public class FileStorageService {
         try {
             String publicId = extractPublicId(cloudinaryUrl);
             if (publicId == null) {
-                log.warn("Could not extract publicId from URL: {}", cloudinaryUrl);
+                log.warn("Could not extract publicId from URL");
                 return;
             }
 
@@ -131,7 +131,7 @@ public class FileStorageService {
         } catch (Exception e) {
             // Non-fatal — image is already saved, just couldn't remove tag
             // The cleanup job will skip images that are referenced in DB (safe)
-            log.warn("Could not confirm file {}: {}", cloudinaryUrl, e.getMessage());
+            log.warn("Could not confirm file {}", e.getMessage());
         }
     }
 
