@@ -42,9 +42,7 @@ public class CorsConfig {
         CorsConfiguration config = new CorsConfiguration();
 
         config.setAllowedOrigins(List.of(
-                "http://localhost:5173",    // local React dev
-                "http://localhost:3000",    // alternative local
-                frontendUrl                 // production Netlify URL (from env var)
+                frontendUrl
         ));
 
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
