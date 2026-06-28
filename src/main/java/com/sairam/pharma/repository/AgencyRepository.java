@@ -35,29 +35,15 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 
-// JpaRepository<Agency, Long>:
-//   Agency = which entity this manages
-//   Long   = the type of the primary key (id is a Long)
 @Repository
 public interface AgencyRepository extends JpaRepository<Agency, Long> {
 
-    // ---- Spring auto-generates SQL for these ----
-
-    // Check if an agency with this name already exists
-    // → SELECT COUNT(*) > 0 FROM agencies WHERE name = ?
     boolean existsByNameIgnoreCase(String name);
 
-    // Same check but EXCLUDE a specific ID (used when editing)
-    // → SELECT COUNT(*) > 0 FROM agencies WHERE name = ? AND id != ?
     boolean existsByNameIgnoreCaseAndIdNot(String name, Long id);
 
-    // Find by phone number
-    // Optional<> means "might return one, might return nothing"
     Optional<Agency> findByPhone(String phone);
 
-    // ---- Custom JPQL query for search ----
-    // JPQL = Java Persistence Query Language — like SQL but uses class/field names
-    // :query is a named parameter, filled in at runtime
     @Query("""
         SELECT a FROM Agency a
         WHERE LOWER(a.name)          LIKE LOWER(CONCAT('%', :query, '%'))
@@ -68,6 +54,5 @@ public interface AgencyRepository extends JpaRepository<Agency, Long> {
         """)
     List<Agency> searchAgencies(@Param("query") String query);
 
-    // Find all, ordered by name alphabetically
     List<Agency> findAllByOrderByNameAsc();
 }

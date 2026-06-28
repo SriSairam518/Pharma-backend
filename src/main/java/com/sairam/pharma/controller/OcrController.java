@@ -39,12 +39,6 @@ public class OcrController {
         return "scanning...";
     }
 
-    // POST /api/ocr/scan
-    // Body:    { "imageUrl": "/uploads/bills/abc.jpg" }
-    // Returns: {
-    //   billNumber, billDate, vendorTotal, calculatedTotal,
-    //   totalMismatch, totalNote, items: [...]
-    // }
     @PostMapping("/scan")
     public ResponseEntity<ApiResponse<Map<String, Object>>> scanBill(
             @RequestBody Map<String, String> body

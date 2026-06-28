@@ -27,9 +27,6 @@ public class AuthController {
 
     private final AuthService authService;
 
-    // ---- POST /api/auth/login ----
-    // Body: { "username": "admin", "password": "secret" }
-    // Returns: { "token": "eyJ...", "username": "admin" }
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthDto.LoginResponse>> login(
             @Valid @RequestBody AuthDto.LoginRequest request
@@ -38,9 +35,6 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success("Login successful", response));
     }
 
-    // ---- POST /api/auth/forgot-password ----
-    // Body: { "email": "your@gmail.com" }
-    // Returns: always 200 (even if email not found — security by design)
     @PostMapping("/forgot-password")
     public ResponseEntity<ApiResponse<Void>> forgotPassword(
             @Valid @RequestBody AuthDto.ForgotPasswordRequest request
@@ -51,8 +45,6 @@ public class AuthController {
         ));
     }
 
-    // ---- POST /api/auth/reset-password ----
-    // Body: { "token": "uuid-from-email", "newPassword": "newSecret" }
     @PostMapping("/reset-password")
     public ResponseEntity<ApiResponse<Void>> resetPassword(
             @Valid @RequestBody AuthDto.ResetPasswordRequest request

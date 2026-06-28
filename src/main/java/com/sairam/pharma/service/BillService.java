@@ -61,11 +61,6 @@ public class BillService {
     private final AgencyRepository agencyRepository;
     private final FileStorageService fileStorageService;
 
-    // ================================================================
-    // CREATE BILL
-    // On success → confirm the bill image in Cloudinary (remove temp tag)
-    // On failure → Spring rolls back DB, we also delete the temp image
-    // ================================================================
     @Transactional
     public BillDto.Response createBill(BillDto.Request request) {
 
@@ -110,9 +105,6 @@ public class BillService {
         try {
             Bill saved = billRepository.save(bill);
 
-            // ---- CONFIRM IMAGE ----
-            // Bill saved successfully → remove temp tag from Cloudinary image
-            // so the cleanup job never touches it
             if (saved.getBillImageUrl() != null) {
                 fileStorageService.confirmFile(saved.getBillImageUrl());
             }
@@ -120,10 +112,6 @@ public class BillService {
             return toResponse(saved);
 
         } catch (Exception e) {
-            // ---- DELETE TEMP IMAGE ON FAILURE ----
-            // Bill save failed → delete the uploaded image from Cloudinary
-            // so it doesn't become an orphan (the cleanup job would also
-            // catch it in 2 hours, but immediate deletion is cleaner)
             if (request.getBillImageUrl() != null) {
                 try {
                     String publicId = fileStorageService.extractPublicId(request.getBillImageUrl());
@@ -132,7 +120,7 @@ public class BillService {
                     log.warn("Could not delete temp image after bill save failure: {}", ex.getMessage());
                 }
             }
-            throw e; // re-throw so the transaction rolls back
+            throw e;
         }
     }
 
@@ -199,7 +187,6 @@ public class BillService {
         bill.setDueAmount(newDue.max(BigDecimal.ZERO));
         bill.setStatus(calculateStatus(newNetAmount, bill.getPaidAmount(), bill.getDueAmount()));
 
-        // Handle image change
         if (request.getBillImageUrl() != null && !request.getBillImageUrl().equals(oldImageUrl)) {
             bill.setBillImageUrl(request.getBillImageUrl());
         }
@@ -224,7 +211,6 @@ public class BillService {
 
         Bill updated = billRepository.save(bill);
 
-        // Confirm new image if changed
         if (request.getBillImageUrl() != null && !request.getBillImageUrl().equals(oldImageUrl)) {
             fileStorageService.confirmFile(request.getBillImageUrl());
         }
@@ -236,11 +222,6 @@ public class BillService {
     public void deleteBill(Long id) {
         Bill bill = findBillOrThrow(id);
 
-        // ---- Collect every Cloudinary image tied to this bill ----
-        // 1. The bill scan image itself
-        // 2. Every payment proof image across all payments on this bill
-        // We collect URLs BEFORE deleting the DB row, since once the
-        // bill/payments are gone we can no longer read their image URLs.
         List<String> imageUrlsToDelete = new java.util.ArrayList<>();
 
         if (bill.getBillImageUrl() != null) {
@@ -252,13 +233,8 @@ public class BillService {
             }
         });
 
-        // ---- Delete the bill from the database ----
-        // Cascade (orphanRemoval) takes care of bill_items and payments rows
         billRepository.delete(bill);
 
-        // ---- Delete each collected image from Cloudinary ----
-        // This runs AFTER the DB delete succeeds, so we never end up
-        // deleting images for a bill that failed to delete from the DB.
         for (String imageUrl : imageUrlsToDelete) {
             try {
                 String publicId = fileStorageService.extractPublicId(imageUrl);
@@ -266,10 +242,6 @@ public class BillService {
                     fileStorageService.deleteFile(publicId);
                 }
             } catch (Exception e) {
-                // Non-fatal — the bill is already deleted from the DB.
-                // Worst case this image becomes an orphan; if it still has
-                // no tag (already confirmed), the hourly cleanup job won't
-                // catch it either, but this is a rare edge case worth logging.
                 log.warn("Could not delete Cloudinary image {} after bill {} deletion: {}",
                         imageUrl, id, e.getMessage());
             }
@@ -296,9 +268,6 @@ public class BillService {
                 .orElseThrow(() -> new ResourceNotFoundException("Bill not found with id: " + id));
     }
 
-    // ================================================================
-    // MAPPERS
-    // ================================================================
     private BillDto.Response toResponse(Bill bill) {
         List<BillItemDto.Response> itemDtos = bill.getItems().stream()
                 .map(item -> BillItemDto.Response.builder()

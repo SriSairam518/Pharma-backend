@@ -49,16 +49,13 @@ import java.time.LocalDateTime;
                 columnNames = "name"
         )
 )
-// EntityListeners enables auto-filling createdAt and updatedAt
+
 @EntityListeners(AuditingEntityListener.class)
 public class Agency {
 
-    // ---- PRIMARY KEY ----
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY) // auto-increment: 1, 2, 3...
     private Long id;
-
-    // ---- REQUIRED FIELDS ----
 
     @Column(nullable = false, length = 100)
     private String name;
@@ -69,21 +66,14 @@ public class Agency {
     @Column(nullable = false, length = 15)
     private String phone;
 
-    // ---- OPTIONAL FIELDS ----
-
     @Column(length = 150)
     private String email;
 
-    // TEXT type for longer content (no 255 char limit)
     @Column(columnDefinition = "TEXT")
     private String address;
 
-    // GSTIN: 15-character Indian GST number
     @Column(length = 15)
     private String gstin;
-
-    // ---- AUDIT FIELDS ----
-    // These are filled automatically by Spring — you never set them manually
 
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)

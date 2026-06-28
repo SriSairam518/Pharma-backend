@@ -36,10 +36,6 @@ public class UploadController {
 
     private final FileStorageService fileStorageService;
 
-    // ----------------------------------------------------------------
-    // POST /api/uploads/bill
-    // Form-data key: "file"
-    // ----------------------------------------------------------------
     @PostMapping("/api/uploads/bill")
     public ResponseEntity<ApiResponse<Map<String, String>>> uploadBillImage(
             @RequestParam("file") MultipartFile file
@@ -52,10 +48,6 @@ public class UploadController {
                 .body(ApiResponse.success("File uploaded successfully", Map.of("url", url)));
     }
 
-    // ----------------------------------------------------------------
-    // POST /api/uploads/payment
-    // Form-data key: "file"
-    // ----------------------------------------------------------------
     @PostMapping("/api/uploads/payment")
     public ResponseEntity<ApiResponse<Map<String, String>>> uploadPaymentProof(
             @RequestParam("file") MultipartFile file
@@ -68,7 +60,6 @@ public class UploadController {
                 .body(ApiResponse.success("File uploaded successfully", Map.of("url", url)));
     }
 
-    // ---- Basic validation ----
     private void validateImage(MultipartFile file) {
         if (file.isEmpty()) {
             throw new IllegalArgumentException("File is empty");
@@ -82,7 +73,6 @@ public class UploadController {
             throw new IllegalArgumentException("Only image or PDF files are allowed");
         }
 
-        // 10MB limit (matches application.properties multipart config)
         long maxSize = 10 * 1024 * 1024;
         if (file.getSize() > maxSize) {
             throw new IllegalArgumentException("File size must not exceed 10MB");

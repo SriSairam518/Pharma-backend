@@ -41,14 +41,11 @@ public class CloudinaryCleanupService {
 
     private final FileStorageService fileStorageService;
 
-    // Runs at the top of every hour (e.g. 1:00, 2:00, 3:00...)
-    // "0 0 * * * *" = second=0, minute=0, every hour, every day
     @Scheduled(cron = "0 0 * * * *")
     public void deleteOrphanedTempImages() {
         log.info("Cloudinary cleanup job started — looking for temp images older than 2 hours");
 
         try {
-            // Find temp images older than 2 hours
             List<Map<String, Object>> orphanedFiles =
                     fileStorageService.findTempFilesOlderThan(2);
 
@@ -79,7 +76,6 @@ public class CloudinaryCleanupService {
             log.info("Cloudinary cleanup complete — deleted: {}, failed: {}", deleted, failed);
 
         } catch (Exception e) {
-            // Never let the cleanup job crash the application
             log.error("Cloudinary cleanup job error: {}", e.getMessage());
         }
     }

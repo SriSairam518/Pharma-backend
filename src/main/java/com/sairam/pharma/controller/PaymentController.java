@@ -25,12 +25,6 @@ public class PaymentController {
 
     private final PaymentService paymentService;
 
-    // ----------------------------------------------------------------
-    // POST /api/bills/5/payments
-    // Body: { "amountPaid": 500.00, "proofImageUrl": "...", "notes": "..." }
-    //
-    // Records a payment (partial or full) and returns the updated due amount
-    // ----------------------------------------------------------------
     @PostMapping("/api/bills/{billId}/payments")
     public ResponseEntity<ApiResponse<PaymentDto.Response>> payBill(
             @PathVariable Long billId,
@@ -42,10 +36,6 @@ public class PaymentController {
                 .body(ApiResponse.success("Payment recorded successfully", payment));
     }
 
-    // ----------------------------------------------------------------
-    // GET /api/bills/5/payments
-    // Returns the full payment history for one bill
-    // ----------------------------------------------------------------
     @GetMapping("/api/bills/{billId}/payments")
     public ResponseEntity<ApiResponse<List<PaymentDto.Response>>> getPayments(
             @PathVariable Long billId

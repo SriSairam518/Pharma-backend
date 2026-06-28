@@ -1,22 +1,5 @@
 package com.sairam.pharma.service;
 
-// ================================================================
-// EmailService.java
-//
-// WHY @Autowired(required = false)?
-// JavaMailSender requires MAIL_USERNAME + MAIL_PASSWORD env vars
-// to be set. In local development you often don't have these
-// configured. Without this, the whole app fails to start just
-// because mail isn't set up — even though you might only want to
-// test billing features, not password reset.
-//
-// With required=false:
-//   - Mail env vars SET   → JavaMailSender is created, emails work
-//   - Mail env vars MISSING → JavaMailSender is null, app still
-//     starts, but calling forgotPassword() returns a clear error
-//     instead of crashing at startup
-// ================================================================
-
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,20 +14,17 @@ import jakarta.mail.internet.MimeMessage;
 @Service
 public class EmailService {
 
-    // required = false → app starts even if mail is not configured
     @Autowired(required = false)
     private JavaMailSender mailSender;
 
     @Value("${spring.mail.username:}")
     private String fromEmail;
 
-    @Value("${app.frontend-url:http://localhost:5173}")
+    @Value("${frontend-url}")
     private String frontendUrl;
 
     public void sendPasswordResetEmail(String toEmail, String resetToken) {
 
-        // Guard — gives a clear error if mail isn't configured
-        // instead of a NullPointerException deep in the stack
         if (mailSender == null) {
             log.error("Mail is not configured. Set MAIL_USERNAME and MAIL_PASSWORD env vars.");
             throw new RuntimeException(

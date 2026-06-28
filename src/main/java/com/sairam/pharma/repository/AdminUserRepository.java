@@ -13,7 +13,6 @@ public interface AdminUserRepository extends JpaRepository<AdminUser, Long> {
 
     Optional<AdminUser> findByEmail(String email);
 
-    // Used to find the row when verifying a reset link
     Optional<AdminUser> findByResetToken(String resetToken);
 
     boolean existsByUsername(String username);

@@ -18,7 +18,6 @@ public class JwtUtil {
     @Value("${jwt.secret}")
     private String jwtSecret;
 
-    // Default 7 days in milliseconds
     @Value("${jwt.expiration-ms:604800000}")
     private long jwtExpirationMs;
 
@@ -26,7 +25,6 @@ public class JwtUtil {
         return Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
     }
 
-    // Generate a signed JWT after successful login
     public String generateToken(String username) {
         Date now    = new Date();
         Date expiry = new Date(now.getTime() + jwtExpirationMs);
@@ -39,7 +37,6 @@ public class JwtUtil {
                 .compact();
     }
 
-    // Extract the username embedded in the token
     public String extractUsername(String token) {
         return extractClaim(token, Claims::getSubject);
     }
@@ -57,7 +54,6 @@ public class JwtUtil {
         return claimsResolver.apply(claims);
     }
 
-    // Returns true only if signature is valid AND token hasn't expired
     public boolean isTokenValid(String token, String expectedUsername) {
         try {
             String username   = extractUsername(token);

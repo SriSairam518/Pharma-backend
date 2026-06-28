@@ -28,8 +28,6 @@ public class AdminUserSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        // Only runs if the table is empty (first-ever startup)
-        // After the account exists, every redeploy skips this entirely
         if (adminUserRepository.count() > 0) {
             log.info("Admin account already exists");
             return;

@@ -51,8 +51,6 @@ public class FileStorageService {
     @Value("${cloudinary.api-secret}")
     private String apiSecret;
 
-    // Tag used to mark images as "not yet confirmed by a saved bill/payment"
-    // The cleanup job will delete any image still having this tag after 2 hours
     public static final String TEMP_TAG = "pharma_temp";
 
     private Cloudinary cloudinary;
@@ -68,13 +66,6 @@ public class FileStorageService {
         log.info("Cloudinary initialized — cloud");
     }
 
-    // ================================================================
-    // PHASE 1 — Upload with TEMP tag
-    // Called when user picks a file in the browser.
-    // Image is stored BUT tagged as temporary.
-    // Returns the permanent URL (the URL itself never changes —
-    // only the tag changes when confirmed).
-    // ================================================================
     public String storeFile(MultipartFile file, String subFolder) {
         try {
             String publicId = "pharma/" + subFolder + "/" + UUID.randomUUID();
@@ -99,16 +90,6 @@ public class FileStorageService {
         }
     }
 
-    // ================================================================
-    // PHASE 2 — Confirm (make permanent)
-    // Called after a bill or payment is successfully saved to DB.
-    // Removes the TEMP_TAG → cleanup job will no longer touch this image.
-    //
-    // HOW WE GET publicId FROM URL:
-    // Cloudinary URL format:
-    //   https://res.cloudinary.com/{cloud}/image/upload/v{ver}/{publicId}.{ext}
-    // We extract everything after "upload/v{version}/" as the public ID.
-    // ================================================================
     public void confirmFile(String cloudinaryUrl) {
         if (cloudinaryUrl == null || cloudinaryUrl.isBlank()) return;
         try {
@@ -118,9 +99,6 @@ public class FileStorageService {
                 return;
             }
 
-            // Use explicit() to update the resource and clear all tags.
-            // removeTag() API was removed in newer Cloudinary SDK versions.
-            // Setting tags="" removes all tags including TEMP_TAG.
             cloudinary.uploader().explicit(publicId, ObjectUtils.asMap(
                     "type",          "upload",
                     "resource_type", "image",
@@ -129,20 +107,12 @@ public class FileStorageService {
             log.info("Confirmed file (temp tag removed): {}", publicId);
 
         } catch (Exception e) {
-            // Non-fatal — image is already saved, just couldn't remove tag
-            // The cleanup job will skip images that are referenced in DB (safe)
             log.warn("Could not confirm file {}", e.getMessage());
         }
     }
 
-    // ================================================================
-    // DELETE — used by cleanup job to remove orphaned temp images
-    // ================================================================
     public void deleteFile(String publicId) {
         try {
-            // destroy() is part of the Upload API where "auto" IS valid,
-            // but we use "image" explicitly for consistency since all
-            // our files (bill scans, payment proofs) are stored as images
             cloudinary.uploader().destroy(publicId,
                     ObjectUtils.asMap("resource_type", "image"));
             log.info("Deleted orphaned temp file: {}", publicId);
@@ -151,21 +121,9 @@ public class FileStorageService {
         }
     }
 
-    // ================================================================
-    // SEARCH temp files older than given hours — used by cleanup job
-    // ================================================================
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> findTempFilesOlderThan(int hours) {
         try {
-            // Cloudinary Admin API search — find all resources with our temp tag
-            // that were created before (now - hours)
-            //
-            // IMPORTANT: "auto" is only valid for the UPLOAD api (it lets
-            // Cloudinary detect image/video/raw automatically). The Admin
-            // API used here for SEARCHING does not accept "auto" — it only
-            // accepts a specific type: "image", "video", or "raw".
-            // All our bill scans and payment proofs are uploaded as images
-            // (Cloudinary auto-converts PDFs to images too), so "image" is correct.
             long cutoffTimestamp = System.currentTimeMillis() / 1000 - (hours * 3600L);
 
             Map<String, Object> result = cloudinary.api()
@@ -179,12 +137,10 @@ public class FileStorageService {
 
             if (resources == null) return List.of();
 
-            // Filter to only those older than the cutoff
             return resources.stream()
                     .filter(r -> {
                         Object createdAt = r.get("created_at");
                         if (createdAt == null) return false;
-                        // created_at is ISO string like "2024-06-01T10:00:00Z"
                         try {
                             long created = java.time.Instant.parse(createdAt.toString())
                                     .getEpochSecond();
@@ -201,26 +157,16 @@ public class FileStorageService {
         }
     }
 
-    // ================================================================
-    // HELPERS
-    // ================================================================
-
-    // Extract Cloudinary publicId from a secure URL
-    // Input:  https://res.cloudinary.com/mycloud/image/upload/v1234567/pharma/bills/uuid.jpg
-    // Output: pharma/bills/uuid
     public String extractPublicId(String url) {
         if (url == null) return null;
         try {
-            // Split on "/upload/" and take the part after it
             String[] parts = url.split("/upload/");
             if (parts.length < 2) return null;
 
-            String afterUpload = parts[1]; // e.g. "v1234567/pharma/bills/uuid.jpg"
+            String afterUpload = parts[1];
 
-            // Remove version prefix (v followed by digits and slash)
             String withoutVersion = afterUpload.replaceFirst("^v\\d+/", "");
 
-            // Remove file extension
             int dotIndex = withoutVersion.lastIndexOf('.');
             return dotIndex > 0 ? withoutVersion.substring(0, dotIndex) : withoutVersion;
 
@@ -230,8 +176,8 @@ public class FileStorageService {
         }
     }
 
-    // Expose cloudinary instance for cleanup service
     public Cloudinary getCloudinary() {
+
         return cloudinary;
     }
 }

@@ -1,22 +1,5 @@
 package com.sairam.pharma.service;
 
-// ================================================================
-// PaymentService.java  —  SERVICE LAYER
-//
-// THE CORE LOGIC OF "PAY A BILL":
-//
-//   1. User enters an amount (partial or full) + optional proof image
-//   2. We create a Payment record
-//   3. We add this amount to Bill.paidAmount
-//   4. We recalculate Bill.dueAmount = totalAmount - paidAmount
-//   5. We recalculate Bill.status (UNPAID / PARTIALLY_PAID / PAID)
-//
-// VALIDATION RULE:
-//   You CANNOT pay more than the current due amount.
-//   e.g. if due = ₹500, you can't record a ₹600 payment.
-//   (This prevents negative due amounts / data corruption)
-// ================================================================
-
 import com.sairam.pharma.dto.PaymentDto;
 import com.sairam.pharma.entity.Bill;
 import com.sairam.pharma.entity.Payment;
@@ -104,14 +87,11 @@ public class PaymentService {
         try {
             billService.saveBill(bill);
 
-            // ---- CONFIRM PROOF IMAGE ----
-            // Payment saved → make proof image permanent in Cloudinary
             if (payment.getProofImageUrl() != null) {
                 fileStorageService.confirmFile(payment.getProofImageUrl());
             }
 
         } catch (Exception e) {
-            // ---- DELETE TEMP PROOF IMAGE ON FAILURE ----
             if (request.getProofImageUrl() != null) {
                 try {
                     String publicId = fileStorageService.extractPublicId(request.getProofImageUrl());
