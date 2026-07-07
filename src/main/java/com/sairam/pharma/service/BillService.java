@@ -130,8 +130,8 @@ public class BillService {
         // Without this, (BigDecimal) sums[0] throws ClassCastException → 500.
         Object[] sums        = billRepository.getBillSummaryTotals(agencyId, startDate, endDate);
         BigDecimal totalBilled = toBigDecimal(sums[0]);
-        BigDecimal totalPaid   = toBigDecimal(sums[0]);
-        BigDecimal totalDue    = toBigDecimal(sums[0]);
+        BigDecimal totalPaid   = toBigDecimal(sums[1]);
+        BigDecimal totalDue    = toBigDecimal(sums[2]);
 
         // Query 3 — item counts for all bills at once (avoids N+1)
         Map<Long, Long> itemCounts = getItemCountsForBills(bills);
