@@ -1,30 +1,5 @@
 package com.sairam.pharma.service;
 
-// ================================================================
-// FileStorageService.java  —  CLOUDINARY with temp/permanent tagging
-//
-// TWO-PHASE UPLOAD STRATEGY:
-//
-// PHASE 1 — Upload (temporary):
-//   User uploads image → stored in Cloudinary with tag "temp"
-//   Returns the URL immediately so OCR can start
-//   If bill save fails or user cancels → image stays tagged "temp"
-//
-// PHASE 2 — Confirm (permanent):
-//   Bill/Payment saved successfully → we call confirmFile(url)
-//   This removes the "temp" tag → image becomes permanent
-//
-// CLEANUP (automated):
-//   CloudinaryCleanupService runs every hour
-//   Finds all Cloudinary images still tagged "temp" AND older than 2 hours
-//   Deletes them automatically — no manual intervention needed
-//
-// WHY TAGS INSTEAD OF MOVING FILES?
-// Cloudinary has no "move" operation. Tags are the standard Cloudinary
-// way to mark files as temporary vs permanent. The cleanup service
-// uses Cloudinary's Admin API to search by tag + created_at date.
-// ================================================================
-
 import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
 import lombok.extern.slf4j.Slf4j;

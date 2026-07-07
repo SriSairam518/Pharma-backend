@@ -1,23 +1,5 @@
 package com.sairam.pharma.controller;
 
-// ================================================================
-// UploadController.java  —  CONTROLLER
-//
-// ENDPOINTS:
-//   POST /api/uploads/bill     → upload a bill image, get back a URL
-//   POST /api/uploads/payment  → upload a payment proof image
-//
-// FRONTEND FLOW:
-//   1. User selects a bill image file
-//   2. Frontend uploads it HERE first → gets back a URL
-//      e.g. "/uploads/bills/abc-123.jpg"
-//   3. Frontend then sends that URL as part of the
-//      "create bill" request (billImageUrl field)
-//
-// This is a 2-step process: upload file → get URL → use URL in data.
-// This is the standard pattern for handling file uploads with JSON APIs.
-// ================================================================
-
 import com.sairam.pharma.dto.ApiResponse;
 import com.sairam.pharma.service.FileStorageService;
 import lombok.RequiredArgsConstructor;

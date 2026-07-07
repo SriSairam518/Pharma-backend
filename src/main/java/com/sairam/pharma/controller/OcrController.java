@@ -1,21 +1,5 @@
 package com.sairam.pharma.controller;
 
-// ================================================================
-// OcrController.java  —  CONTROLLER
-//
-// ENDPOINT:
-//   POST /api/ocr/scan
-//   Body: { "imageUrl": "/uploads/bills/abc.jpg" }
-//   Returns: list of extracted medicine rows
-//
-// FLOW:
-//   1. React uploads bill image → gets back imageUrl
-//   2. React sends imageUrl here
-//   3. We read the file from disk, send to Google Vision
-//   4. Return parsed medicine rows to React
-//   5. React shows editable table pre-filled with these rows
-// ================================================================
-
 import com.sairam.pharma.dto.ApiResponse;
 import com.sairam.pharma.service.OcrService;
 import lombok.RequiredArgsConstructor;

@@ -1,16 +1,5 @@
 package com.sairam.pharma.controller;
 
-// ================================================================
-// BillController.java  —  CONTROLLER
-//
-// ENDPOINTS:
-//   POST   /api/bills                    → create a new bill
-//   GET    /api/bills/{id}                → get one bill (full detail)
-//   PUT    /api/bills/{id}                → update a bill
-//   DELETE /api/bills/{id}                → delete a bill
-//   GET    /api/agencies/{agencyId}/bills → bills for one agency (filtered)
-// ================================================================
-
 import com.sairam.pharma.dto.ApiResponse;
 import com.sairam.pharma.dto.BillDto;
 import com.sairam.pharma.service.BillService;

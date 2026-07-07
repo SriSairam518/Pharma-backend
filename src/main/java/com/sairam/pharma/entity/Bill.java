@@ -1,34 +1,5 @@
 package com.sairam.pharma.entity;
 
-// ================================================================
-// Bill.java  —  ENTITY
-//
-// WHAT IS THIS?
-// Represents ONE bill/invoice received from an agency.
-// e.g. "Sun Pharma sent us bill #INV-2024-105 on 12 June for ₹15,000"
-//
-// RELATIONSHIPS EXPLAINED:
-//
-// 1. Bill → Agency  (MANY bills belong to ONE agency)
-//    @ManyToOne — "many bills point to one agency"
-//    ANALOGY: many students (bills) belong to one school (agency)
-//
-// 2. Bill → BillItem  (ONE bill has MANY medicine line items)
-//    @OneToMany — "one bill has many items"
-//    ANALOGY: one invoice (bill) has many line items (medicines)
-//
-// 3. Bill → Payment  (ONE bill can have MANY payments — partial payments)
-//    @OneToMany — same idea
-//
-// CASCADE = ALL means: if you save/delete a Bill, automatically
-// save/delete its BillItems and Payments too. You don't manage
-// them separately.
-//
-// MONEY FIELDS use BigDecimal — NEVER use float/double for money!
-// float/double have rounding errors (0.1 + 0.2 != 0.3 in binary).
-// BigDecimal is exact — the correct choice for currency.
-// ================================================================
-
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;

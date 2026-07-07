@@ -1,31 +1,5 @@
 package com.sairam.pharma.service;
 
-// ================================================================
-// CloudinaryCleanupService.java  —  AUTOMATED CLEANUP JOB
-//
-// WHAT IT DOES:
-// Runs automatically every hour.
-// Finds all Cloudinary images tagged "pharma_temp" AND older than 2 hours.
-// Deletes them one by one.
-//
-// WHY 2 HOURS?
-// A normal user flow takes < 5 minutes (upload → OCR → review → save).
-// 2 hours is a very generous buffer — even if someone leaves the form
-// open for a long time before cancelling, the image gets cleaned up.
-// Any image that has been sitting in "temp" for 2+ hours was definitely
-// abandoned (OCR failed, user closed the tab, bill save errored, etc).
-//
-// HOW IT WORKS:
-// @Scheduled(cron = "0 0 * * * *") = "at minute 0 of every hour"
-// Spring calls this automatically — no external scheduler needed.
-//
-// SAFETY:
-// Once a bill/payment is saved, confirmFile() removes the TEMP_TAG.
-// So even if cleanup runs while someone is actively saving,
-// it will never delete a confirmed (saved) image — the tag is gone.
-// ================================================================
-
-import com.sairam.pharma.service.FileStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;

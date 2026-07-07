@@ -1,35 +1,5 @@
 package com.sairam.pharma.service;
 
-// ================================================================
-// BillService.java  —  SERVICE LAYER
-//
-// RESPONSIBILITIES:
-//   1. Create a bill with its medicine items (from the OCR-edited table)
-//   2. Auto-calculate totalAmount = sum of (quantity × unitPrice)
-//   3. Fetch bills for an agency, filtered by date range
-//   4. Build the "agency bills summary" (total due card)
-//   5. Update / delete bills
-//
-// IMPORTANT CONCEPT — "last X days" date range:
-//   "Last 7 days" means: from (today - 7 days) to today
-//   We calculate this in the SERVICE, not the controller,
-//   because date math is business logic.
-// ================================================================
-
-// ================================================================
-// BillService.java  —  SERVICE LAYER
-//
-// KEY CHANGE: We NO LONGER calculate totalAmount by summing items.
-// Real pharma bills often have rounding adjustments, extra charges,
-// or item amounts that don't perfectly sum to the printed total.
-// We TRUST the scanned netAmount as the source of truth for
-// totalAmount/dueAmount/payment tracking.
-//
-// Item-level fields (amount, MRP, rate, discount, GST) are stored
-// exactly as scanned — purely for reference/display, never used
-// in any calculation.
-// ================================================================
-
 import com.sairam.pharma.dto.BillDto;
 import com.sairam.pharma.dto.BillItemDto;
 import com.sairam.pharma.dto.PaymentDto;
@@ -49,7 +19,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -104,11 +76,9 @@ public class BillService {
 
         try {
             Bill saved = billRepository.save(bill);
-
             if (saved.getBillImageUrl() != null) {
                 fileStorageService.confirmFile(saved.getBillImageUrl());
             }
-
             return toResponse(saved);
 
         } catch (Exception e) {
@@ -150,12 +120,25 @@ public class BillService {
             startDate = LocalDate.of(2000, 1, 1);
         }
 
+        // Query 1 — bills list
         List<Bill> bills = billRepository
                 .findByAgencyIdAndBillDateBetweenOrderByBillDateDesc(agencyId, startDate, endDate);
 
-        BigDecimal totalBilled = billRepository.sumTotalAmountByAgencyAndDateRange(agencyId, startDate, endDate);
-        BigDecimal totalPaid   = billRepository.sumPaidAmountByAgencyAndDateRange(agencyId, startDate, endDate);
-        BigDecimal totalDue    = billRepository.sumDueAmountByAgencyAndDateRange(agencyId, startDate, endDate);
+        // Query 2 — combined totals (3 SUMs in 1 query)
+        // toBigDecimal() handles the case where Hibernate returns Integer/Long
+        // instead of BigDecimal when the SUM result is 0 and there are no rows.
+        // Without this, (BigDecimal) sums[0] throws ClassCastException → 500.
+        Object[] sums        = billRepository.getBillSummaryTotals(agencyId, startDate, endDate);
+        BigDecimal totalBilled = toBigDecimal(sums[0]);
+        BigDecimal totalPaid   = toBigDecimal(sums[0]);
+        BigDecimal totalDue    = toBigDecimal(sums[0]);
+
+        // Query 3 — item counts for all bills at once (avoids N+1)
+        Map<Long, Long> itemCounts = getItemCountsForBills(bills);
+
+        List<BillDto.SummaryResponse> billSummaries = bills.stream()
+                .map(bill -> toSummaryResponse(bill, itemCounts))
+                .collect(Collectors.toList());
 
         return BillDto.AgencyBillsSummary.builder()
                 .agencyId(agency.getId())
@@ -164,8 +147,48 @@ public class BillService {
                 .totalPaidAmount(totalPaid)
                 .totalDueAmount(totalDue)
                 .billCount(bills.size())
-                .bills(bills.stream().map(this::toSummaryResponse).collect(Collectors.toList()))
+                .bills(billSummaries)
                 .build();
+    }
+
+    // ================================================================
+    // SAFE CAST helper
+    //
+    // WHY THIS EXISTS:
+    // When a SUM() query has matching rows, Hibernate returns BigDecimal.
+    // When there are NO matching rows, COALESCE(SUM(...), 0) returns
+    // the literal 0 — which Hibernate maps as Integer, not BigDecimal.
+    // Direct casting with (BigDecimal) sums[0] then throws ClassCastException.
+    //
+    // This method handles all numeric types Hibernate might return
+    // and converts them safely to BigDecimal.
+    // ================================================================
+    private BigDecimal toBigDecimal(Object value) {
+        if (value == null) return BigDecimal.ZERO;
+        if (value instanceof BigDecimal) return (BigDecimal) value;
+        if (value instanceof Number) return new BigDecimal(value.toString());
+        return BigDecimal.ZERO;
+    }
+
+    // Batch item count fetch — ONE query for all bills (avoids N+1)
+    private Map<Long, Long> getItemCountsForBills(List<Bill> bills) {
+        if (bills.isEmpty()) return Map.of();
+
+        List<Long> billIds = bills.stream()
+                .map(Bill::getId)
+                .collect(Collectors.toList());
+
+        Map<Long, Long> counts = new HashMap<>();
+        for (Object[] row : billRepository.findItemCountsByBillIds(billIds)) {
+            counts.put((Long) row[0], (Long) row[1]);
+        }
+
+        // Bills with zero items won't appear in GROUP BY result — default to 0
+        for (Bill bill : bills) {
+            counts.putIfAbsent(bill.getId(), 0L);
+        }
+
+        return counts;
     }
 
     @Transactional
@@ -187,7 +210,8 @@ public class BillService {
         bill.setDueAmount(newDue.max(BigDecimal.ZERO));
         bill.setStatus(calculateStatus(newNetAmount, bill.getPaidAmount(), bill.getDueAmount()));
 
-        if (request.getBillImageUrl() != null && !request.getBillImageUrl().equals(oldImageUrl)) {
+        if (request.getBillImageUrl() != null
+                && !request.getBillImageUrl().equals(oldImageUrl)) {
             bill.setBillImageUrl(request.getBillImageUrl());
         }
 
@@ -211,7 +235,8 @@ public class BillService {
 
         Bill updated = billRepository.save(bill);
 
-        if (request.getBillImageUrl() != null && !request.getBillImageUrl().equals(oldImageUrl)) {
+        if (request.getBillImageUrl() != null
+                && !request.getBillImageUrl().equals(oldImageUrl)) {
             fileStorageService.confirmFile(request.getBillImageUrl());
         }
 
@@ -223,7 +248,6 @@ public class BillService {
         Bill bill = findBillOrThrow(id);
 
         List<String> imageUrlsToDelete = new java.util.ArrayList<>();
-
         if (bill.getBillImageUrl() != null) {
             imageUrlsToDelete.add(bill.getBillImageUrl());
         }
@@ -238,22 +262,17 @@ public class BillService {
         for (String imageUrl : imageUrlsToDelete) {
             try {
                 String publicId = fileStorageService.extractPublicId(imageUrl);
-                if (publicId != null) {
-                    fileStorageService.deleteFile(publicId);
-                }
+                if (publicId != null) fileStorageService.deleteFile(publicId);
             } catch (Exception e) {
-                log.warn("Could not delete Cloudinary image {} after bill {} deletion: {}",
-                        imageUrl, id, e.getMessage());
+                log.warn("Could not delete Cloudinary image after bill deletion: {}",
+                        e.getMessage());
             }
         }
-
-        log.info("Deleted bill {} and {} associated image(s) from Cloudinary",
-                id, imageUrlsToDelete.size());
     }
 
     public static BillStatus calculateStatus(
             BigDecimal totalAmount, BigDecimal paidAmount, BigDecimal dueAmount) {
-        if (dueAmount.compareTo(BigDecimal.ZERO) <= 0) return BillStatus.PAID;
+        if (dueAmount.compareTo(BigDecimal.ZERO) <= 0)  return BillStatus.PAID;
         if (paidAmount.compareTo(BigDecimal.ZERO) <= 0) return BillStatus.UNPAID;
         return BillStatus.PARTIALLY_PAID;
     }
@@ -265,7 +284,8 @@ public class BillService {
 
     Bill findBillOrThrow(Long id) {
         return billRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Bill not found with id: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Bill not found with id: " + id));
     }
 
     private BillDto.Response toResponse(Bill bill) {
@@ -287,7 +307,8 @@ public class BillService {
                 .collect(Collectors.toList());
 
         List<PaymentDto.Response> paymentDtos = bill.getPayments().stream()
-                .sorted(Comparator.comparing(com.sairam.pharma.entity.Payment::getPaidAt).reversed())
+                .sorted(Comparator.comparing(
+                        com.sairam.pharma.entity.Payment::getPaidAt).reversed())
                 .map(p -> PaymentDto.Response.builder()
                         .id(p.getId())
                         .amountPaid(p.getAmountPaid())
@@ -323,7 +344,7 @@ public class BillService {
                 .build();
     }
 
-    private BillDto.SummaryResponse toSummaryResponse(Bill bill) {
+    private BillDto.SummaryResponse toSummaryResponse(Bill bill, Map<Long, Long> itemCounts) {
         return BillDto.SummaryResponse.builder()
                 .id(bill.getId())
                 .billNumber(bill.getBillNumber())
@@ -332,7 +353,7 @@ public class BillService {
                 .paidAmount(bill.getPaidAmount())
                 .dueAmount(bill.getDueAmount())
                 .status(bill.getStatus())
-                .itemCount(bill.getItems().size())
+                .itemCount(itemCounts.getOrDefault(bill.getId(), 0L).intValue())
                 .build();
     }
 }
