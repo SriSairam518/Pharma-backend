@@ -23,6 +23,29 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
     List<Bill> findByAgencyIdAndStatusOrderByBillDateDesc(Long agencyId, BillStatus status);
 
     @Query("""
+        SELECT
+            COALESCE(SUM(b.totalAmount), 0),
+            COALESCE(SUM(b.paidAmount), 0),
+            COALESCE(SUM(b.dueAmount), 0)
+        FROM Bill b
+        WHERE b.agency.id = :agencyId
+        AND b.billDate BETWEEN :startDate AND :endDate
+        """)
+    Object[] getBillSummaryTotals(
+            @Param("agencyId") Long agencyId,
+            @Param("startDate") LocalDate startDate,
+            @Param("endDate") LocalDate endDate
+    );
+
+    @Query("""
+        SELECT bi.bill.id, COUNT(bi)
+        FROM BillItem bi
+        WHERE bi.bill.id IN :billIds
+        GROUP BY bi.bill.id
+        """)
+    List<Object[]> findItemCountsByBillIds(@Param("billIds") List<Long> billIds);
+
+    @Query("""
         SELECT COALESCE(SUM(b.totalAmount), 0) FROM Bill b
         WHERE b.agency.id = :agencyId
         AND b.billDate BETWEEN :startDate AND :endDate

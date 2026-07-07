@@ -1,35 +1,5 @@
 package com.sairam.pharma.service;
 
-// ================================================================
-// BillService.java  —  SERVICE LAYER
-//
-// RESPONSIBILITIES:
-//   1. Create a bill with its medicine items (from the OCR-edited table)
-//   2. Auto-calculate totalAmount = sum of (quantity × unitPrice)
-//   3. Fetch bills for an agency, filtered by date range
-//   4. Build the "agency bills summary" (total due card)
-//   5. Update / delete bills
-//
-// IMPORTANT CONCEPT — "last X days" date range:
-//   "Last 7 days" means: from (today - 7 days) to today
-//   We calculate this in the SERVICE, not the controller,
-//   because date math is business logic.
-// ================================================================
-
-// ================================================================
-// BillService.java  —  SERVICE LAYER
-//
-// KEY CHANGE: We NO LONGER calculate totalAmount by summing items.
-// Real pharma bills often have rounding adjustments, extra charges,
-// or item amounts that don't perfectly sum to the printed total.
-// We TRUST the scanned netAmount as the source of truth for
-// totalAmount/dueAmount/payment tracking.
-//
-// Item-level fields (amount, MRP, rate, discount, GST) are stored
-// exactly as scanned — purely for reference/display, never used
-// in any calculation.
-// ================================================================
-
 import com.sairam.pharma.dto.BillDto;
 import com.sairam.pharma.dto.BillItemDto;
 import com.sairam.pharma.dto.PaymentDto;
@@ -49,7 +19,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -153,9 +125,16 @@ public class BillService {
         List<Bill> bills = billRepository
                 .findByAgencyIdAndBillDateBetweenOrderByBillDateDesc(agencyId, startDate, endDate);
 
-        BigDecimal totalBilled = billRepository.sumTotalAmountByAgencyAndDateRange(agencyId, startDate, endDate);
-        BigDecimal totalPaid   = billRepository.sumPaidAmountByAgencyAndDateRange(agencyId, startDate, endDate);
-        BigDecimal totalDue    = billRepository.sumDueAmountByAgencyAndDateRange(agencyId, startDate, endDate);
+        Object[] sums = billRepository.getBillSummaryTotals(agencyId, startDate, endDate);
+        BigDecimal totalBilled = (BigDecimal) sums[0];
+        BigDecimal totalPaid   = (BigDecimal) sums[1];
+        BigDecimal totalDue    = (BigDecimal) sums[2];
+
+        Map<Long, Long> itemCounts = getItemCountsForBills(bills);
+
+        List<BillDto.SummaryResponse> billSummaries = bills.stream()
+                .map(bill -> toSummaryResponse(bill, itemCounts))
+                .collect(Collectors.toList());
 
         return BillDto.AgencyBillsSummary.builder()
                 .agencyId(agency.getId())
@@ -164,8 +143,31 @@ public class BillService {
                 .totalPaidAmount(totalPaid)
                 .totalDueAmount(totalDue)
                 .billCount(bills.size())
-                .bills(bills.stream().map(this::toSummaryResponse).collect(Collectors.toList()))
+                .bills(billSummaries)
                 .build();
+    }
+
+    private Map<Long, Long> getItemCountsForBills(List<Bill> bills) {
+        if (bills.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Long> billIds = bills.stream().map(Bill::getId).collect(Collectors.toList());
+
+        Map<Long, Long> counts = new HashMap<>();
+        for (Object[] row : billRepository.findItemCountsByBillIds(billIds)) {
+            Long billId = (Long) row[0];
+            Long count  = (Long) row[1];
+            counts.put(billId, count);
+        }
+
+        // Bills with zero items won't appear in the GROUP BY result above —
+        // default them to 0 so every bill has an entry
+        for (Bill bill : bills) {
+            counts.putIfAbsent(bill.getId(), 0L);
+        }
+
+        return counts;
     }
 
     @Transactional
@@ -323,7 +325,7 @@ public class BillService {
                 .build();
     }
 
-    private BillDto.SummaryResponse toSummaryResponse(Bill bill) {
+    private BillDto.SummaryResponse toSummaryResponse(Bill bill, Map<Long, Long> itemCounts) {
         return BillDto.SummaryResponse.builder()
                 .id(bill.getId())
                 .billNumber(bill.getBillNumber())
@@ -332,7 +334,7 @@ public class BillService {
                 .paidAmount(bill.getPaidAmount())
                 .dueAmount(bill.getDueAmount())
                 .status(bill.getStatus())
-                .itemCount(bill.getItems().size())
+                .itemCount(itemCounts.getOrDefault(bill.getId(), 0L).intValue())
                 .build();
     }
 }

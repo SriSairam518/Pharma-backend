@@ -1,13 +1,5 @@
 package com.sairam.pharma.controller;
 
-// ================================================================
-// PaymentController.java  —  CONTROLLER
-//
-// ENDPOINTS:
-//   POST /api/bills/{billId}/payments   → record a new payment
-//   GET  /api/bills/{billId}/payments   → get payment history
-// ================================================================
-
 import com.sairam.pharma.dto.ApiResponse;
 import com.sairam.pharma.dto.PaymentDto;
 import com.sairam.pharma.service.PaymentService;

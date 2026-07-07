@@ -1,17 +1,5 @@
 package com.sairam.pharma.controller;
 
-// ================================================================
-// AuthController.java  —  AUTH ENDPOINTS
-//
-// POST /api/auth/login            → returns JWT token
-// POST /api/auth/forgot-password  → sends reset email
-// POST /api/auth/reset-password   → updates password with token
-//
-// All three are PUBLIC — they're in the permitAll() list in
-// SecurityConfig so no JWT is needed to reach them (which makes
-// sense since login is how you GET the JWT in the first place ).
-// ================================================================
-
 import com.sairam.pharma.dto.ApiResponse;
 import com.sairam.pharma.dto.AuthDto;
 import com.sairam.pharma.service.AuthService;
