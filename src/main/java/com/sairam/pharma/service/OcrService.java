@@ -122,7 +122,7 @@ public class OcrService {
 
         String requestBody = """
             {
-              "model": "pixtral-12b-2409",
+              "model": "mistral-small-latest",
               "messages": [
                 {
                   "role": "user",

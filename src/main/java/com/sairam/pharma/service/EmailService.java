@@ -20,7 +20,7 @@ public class EmailService {
     @Value("${spring.mail.username:}")
     private String fromEmail;
 
-    @Value("${frontend-url}")
+    @Value("${frontend.url}")
     private String frontendUrl;
 
     public void sendPasswordResetEmail(String toEmail, String resetToken) {
